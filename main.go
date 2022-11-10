@@ -7,8 +7,11 @@ import (
 func main() {
 	router := gin.Default()
 
+	hub := newHub()
+	go hub.Run()
+
 	router.GET("/ws", func(c *gin.Context) {
-		ServeWs(c.Writer, c.Request)
+		ServeWs(hub, c.Writer, c.Request)
 	})
 
 	router.Run("localhost:8080")
