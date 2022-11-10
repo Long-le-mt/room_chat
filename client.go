@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -38,15 +37,19 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+type Message struct {
+	Message string `json:"message"`
+}
+
 // - Client representer the websocket client at the server
 //
 // - Client is reposible for keeping connection, user info, websocket connection,..
 type Client struct {
 	// The websocket connection
-	Conn *websocket.Conn
+	conn *websocket.Conn
 
 	// Keep a reference to the hub for each Client
-	Hub *Hub
+	hub *Hub
 
 	// Buffered channel of outbound messages.
 	send chan []byte
@@ -56,8 +59,9 @@ type Client struct {
 // - Create Client struct
 func newClient(conn *websocket.Conn, hub *Hub) *Client {
 	return &Client{
-		Conn: conn,
-		Hub:  hub,
+		conn: conn,
+		hub:  hub,
+		send: make(chan []byte),
 	}
 }
 
@@ -71,27 +75,27 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	// new client connect to websocket
 	client := newClient(conn, hub)
-	hub.Register <- client
+	hub.register <- client
 
 	go client.write()
-	go client.readPump()
+	go client.read()
 
-	log.Printf("new client has joined: %s", client.Conn.RemoteAddr().String())
+	log.Printf("new client has joined: %s", client.conn.RemoteAddr().String())
 }
 
-func (client *Client) readPump() {
+func (client *Client) read() {
 	defer func() {
-		client.Hub.Unregister <- client
-		client.Conn.Close()
+		client.hub.unregister <- client
+		client.conn.Close()
 	}()
 
-	client.Conn.SetReadLimit(maxMessageSize)
-	client.Conn.SetReadDeadline(time.Now().Add(pongWait))
-	client.Conn.SetPongHandler(func(string) error { client.Conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	client.conn.SetReadLimit(maxMessageSize)
+	client.conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 
 	// Start endless read loop, waiting for messages from client
 	for {
-		_, message, err := client.Conn.ReadMessage()
+		_, message, err := client.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("unexpected close error: %v", err)
@@ -100,28 +104,29 @@ func (client *Client) readPump() {
 		}
 
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		fmt.Println("message", string(message))
-		client.Hub.Broadcast <- message
+		client.hub.broadcast <- message
 	}
 }
 
 func (client *Client) write() {
 	ticker := time.NewTicker(pingPeriod)
+
 	defer func() {
 		ticker.Stop()
-		client.Conn.Close()
+		client.conn.Close()
 	}()
+
 	for {
 		select {
 		case message, ok := <-client.send:
-			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// The Hub closed the channel.
-				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				client.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
-			w, err := client.Conn.NextWriter(websocket.TextMessage)
+			w, err := client.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				return
 			}
@@ -138,8 +143,8 @@ func (client *Client) write() {
 				return
 			}
 		case <-ticker.C:
-			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}
