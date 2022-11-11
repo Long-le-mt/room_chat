@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 // Room looks like struct of hub, room should be able to register clients, unregister clients, and boardcast to client
 type Room struct {
 	// - Name of room
@@ -33,7 +35,6 @@ func newRoom(name string) *Room {
 func (room *Room) runRoom() {
 	for {
 		select {
-
 		case client := <-room.register:
 			room.registerClientInRoom(client)
 
@@ -47,7 +48,7 @@ func (room *Room) runRoom() {
 }
 
 func (room *Room) registerClientInRoom(client *Client) {
-	// room.notifyClientJoined(client)
+	room.notifyClientJoined(client)
 	room.clients[client] = true
 }
 
@@ -65,5 +66,17 @@ func (room *Room) broadcastToClientsInRoom(message []byte) {
 }
 
 func (room *Room) getName() string {
-	return room.getName()
+	return room.name
+}
+
+const welcomeMessage = "%s joined the room"
+
+func (room *Room) notifyClientJoined(client *Client) {
+	message := &Message{
+		Action:  JOIN_ROOM_ACTION,
+		Target:  room.name,
+		Message: fmt.Sprintf(welcomeMessage, client.GetName()),
+	}
+
+	room.broadcastToClientsInRoom(message.encode())
 }

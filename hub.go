@@ -34,8 +34,10 @@ func (hub *Hub) Run() {
 		select {
 		case client := <-hub.register:
 			hub.registerClient(client)
+
 		case client := <-hub.unregister:
 			hub.unregisterClient(client)
+
 		case message := <-hub.broadcast:
 			hub.broadcastToClients(message)
 		}

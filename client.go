@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -42,6 +43,8 @@ var upgrader = websocket.Upgrader{
 //
 // - Client is reposible for keeping connection, user info, websocket connection,..
 type Client struct {
+	// name of client
+	Name string `json:"name"`
 	// The websocket connection
 	conn *websocket.Conn
 
@@ -74,6 +77,13 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	roomName, ok := r.URL.Query()["section"]
+	if !ok || len(roomName[0]) < 1 {
+		log.Println("Url Param 'name' is missing")
+		return
+	}
+
+	log.Printf("room name", roomName[0])
 	// new client connect to websocket
 	client := newClient(conn, hub)
 	hub.register <- client
@@ -81,7 +91,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	go client.write()
 	go client.read()
 
-	log.Printf("new client has joined: %s", client.conn.RemoteAddr().String())
+	log.Printf("new client has joined: %s - %s", client.conn.RemoteAddr().String())
 }
 
 func (client *Client) read() {
@@ -178,6 +188,7 @@ func (client *Client) handleNewMessage(jsonMessage []byte) {
 
 	// Attach the client object as the sender of the messsage.
 	message.Sender = client
+	log.Println("Message", &message.Sender)
 
 	switch message.Action {
 	case SEND_MESSAGE_ACTION:
@@ -202,9 +213,12 @@ func (client *Client) handleNewMessage(jsonMessage []byte) {
 // Find room and add client to room
 func (client *Client) handleJoinRoomMessage(message Message) {
 	roomName := message.Target
+	client.Name = message.Message
 
 	room := client.hub.findRoomByName(roomName)
 	if room == nil {
+
+		log.Printf(fmt.Sprintf("%s was created", roomName))
 		room = client.hub.createRoom(roomName)
 	}
 
@@ -224,4 +238,8 @@ func (client *Client) handleLeaveRoomMessage(message Message) {
 	}
 
 	room.unregister <- client
+}
+
+func (client *Client) GetName() string {
+	return client.Name
 }

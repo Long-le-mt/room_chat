@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 )
 
@@ -32,5 +33,6 @@ func (msg *Message) encode() []byte {
 		log.Println("Err when encode message:", err)
 	}
 
+	fmt.Println("json", json)
 	return json
 }
