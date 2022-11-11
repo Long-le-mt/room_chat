@@ -37,10 +37,6 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-type Message struct {
-	Message string `json:"message"`
-}
-
 // - Client representer the websocket client at the server
 //
 // - Client is reposible for keeping connection, user info, websocket connection,..
