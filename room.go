@@ -15,7 +15,7 @@ type Room struct {
 	unregister chan *Client
 
 	// - Channel to send broadcast from clients to the server
-	broadcast chan []byte
+	broadcast chan *Message
 }
 
 // - Create a new room
@@ -25,7 +25,7 @@ func newRoom(name string) *Room {
 		clients:    make(map[*Client]bool),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		broadcast:  make(chan []byte),
+		broadcast:  make(chan *Message),
 	}
 }
 
@@ -41,7 +41,7 @@ func (room *Room) runRoom() {
 			room.unregisterClientInRoom(client)
 
 		case message := <-room.broadcast:
-			room.broadcastToClientsInRoom(message)
+			room.broadcastToClientsInRoom(message.encode())
 		}
 	}
 }

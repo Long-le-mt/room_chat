@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -49,15 +50,19 @@ type Client struct {
 
 	// Buffered channel of outbound messages.
 	send chan []byte
+
+	// Keeping track of the rooms clients joins
+	rooms map[*Room]bool
 }
 
 // - New client has connected, initialize it and listening for comming messages
 // - Create Client struct
 func newClient(conn *websocket.Conn, hub *Hub) *Client {
 	return &Client{
-		conn: conn,
-		hub:  hub,
-		send: make(chan []byte),
+		conn:  conn,
+		hub:   hub,
+		send:  make(chan []byte),
+		rooms: make(map[*Room]bool),
 	}
 }
 
@@ -81,8 +86,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 func (client *Client) read() {
 	defer func() {
-		client.hub.unregister <- client
-		client.conn.Close()
+		client.disconnect()
 	}()
 
 	client.conn.SetReadLimit(maxMessageSize)
@@ -100,7 +104,8 @@ func (client *Client) read() {
 		}
 
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		client.hub.broadcast <- message
+		// client.hub.broadcast <- message
+		client.handleNewMessage(message)
 	}
 }
 
@@ -145,4 +150,78 @@ func (client *Client) write() {
 			}
 		}
 	}
+}
+
+func (client *Client) disconnect() {
+	// unregister with server
+	client.hub.unregister <- client
+
+	// unregister client with room
+	for room := range client.rooms {
+		room.unregister <- client
+	}
+
+	// close channel send message of client
+	close(client.send)
+
+	// close connection with webserver
+	client.conn.Close()
+}
+
+// To handler message of client
+func (client *Client) handleNewMessage(jsonMessage []byte) {
+
+	var message Message
+	if err := json.Unmarshal(jsonMessage, &message); err != nil {
+		log.Printf("Error on unmarshal JSON message %s", err)
+	}
+
+	// Attach the client object as the sender of the messsage.
+	message.Sender = client
+
+	switch message.Action {
+	case SEND_MESSAGE_ACTION:
+		// The send-message action, this will send messages to a specific room now.
+		// Which room wil depend on the message Target
+		roomName := message.Target
+		// Use the ChatServer method to find the room, and if found, broadcast!
+		if room := client.hub.findRoomByName(roomName); room != nil {
+			room.broadcast <- &message
+		}
+	// We delegate the join and leave actions.
+	case JOIN_ROOM_ACTION:
+		client.handleJoinRoomMessage(message)
+
+	case LEAVE_ROOM_ACTION:
+		client.handleLeaveRoomMessage(message)
+	}
+}
+
+// Handle message join room of client
+//
+// Find room and add client to room
+func (client *Client) handleJoinRoomMessage(message Message) {
+	roomName := message.Target
+
+	room := client.hub.findRoomByName(roomName)
+	if room == nil {
+		room = client.hub.createRoom(roomName)
+	}
+
+	client.rooms[room] = true
+
+	room.register <- client
+}
+
+// Handler message leave room of client
+//
+// Find room the user want to leave
+func (client *Client) handleLeaveRoomMessage(message Message) {
+	room := client.hub.findRoomByName(message.Target)
+	if _, ok := client.rooms[room]; ok {
+		// delete room from set room of client
+		delete(client.rooms, room)
+	}
+
+	room.unregister <- client
 }
