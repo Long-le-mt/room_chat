@@ -188,7 +188,6 @@ func (client *Client) handleNewMessage(jsonMessage []byte) {
 
 	// Attach the client object as the sender of the messsage.
 	message.Sender = client
-	log.Println("Message", &message.Sender)
 
 	switch message.Action {
 	case SEND_MESSAGE_ACTION:
